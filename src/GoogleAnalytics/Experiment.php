@@ -102,6 +102,13 @@ class Experiment {
 	 */
 	protected static $cacheTtl = self::DEFAULT_CACHE_TTL;
 	
+	/**
+	 * Whether to use file locking for the cache.
+	 * 
+	 * @var bool
+	 */
+	protected static $cacheLocking = self::DEFAULT_CACHE_LOCKING;
+	
 	
 	const ORIGINAL_VARIATION  =  0;
 	const NO_CHOSEN_VARIATION = -1;
@@ -113,6 +120,7 @@ class Experiment {
 	const DEFAULT_COOKIE_PATH               = '/';
 	const DEFAULT_COOKIE_EXPIRATION_SECONDS = 48211200;
 	const DEFAULT_CACHE_TTL                 = 60;
+	const DEFAULT_CACHE_LOCKING             = true;
 	
 	
 	/**
@@ -234,6 +242,20 @@ class Experiment {
 	}
 	
 	/**
+	 * @param bool $cacheLocking
+	 */
+	public static function setCacheLocking($cacheLocking) {
+		static::$cacheLocking = (bool)$cacheLocking;
+	}
+	
+	/**
+	 * @return bool
+	 */
+	public static function getCacheLocking() {
+		return static::$cacheLocking;
+	}
+	
+	/**
 	 * @return array
 	 */
 	protected function getData() {
@@ -257,13 +279,31 @@ class Experiment {
 		if($cacheDir) {
 			$cachePath = $cacheDir . DIRECTORY_SEPARATOR . 'gacx-' . rawurlencode($this->id) . '.cache';
 			if(is_readable($cachePath) && time() <= filemtime($cachePath) + static::getCacheTtl()) {
-				$response = file_get_contents($cachePath);
+				$fp = fopen($cachePath, 'r');
+				if(static::getCacheLocking()) {
+					// Wait for another process that acquired an exclusive lock (see below)
+					// because it is going to write new contents to the cache file
+					flock($fp, LOCK_SH);
+				}
+				$response = stream_get_contents($fp);
+				flock($fp, LOCK_UN);
+				fclose($fp);
 			}
 		}
 		
 		if(!$response) {
 			if(!extension_loaded('curl')) {
 				throw new Exception('php-gacx requires the cURL extension to be installed.');
+			}
+			
+			if($cacheDir) {
+				@mkdir($cacheDir, 0777, true);
+				
+				// Lock the cache file so we won't do multiple requests in parallel
+				$fp = fopen($cachePath, 'c');
+				if(static::getCacheLocking()) {
+					flock($fp, LOCK_EX);
+				}
 			}
 			
 			// We use this JS API trick instead of the official Google Analytics
@@ -286,7 +326,14 @@ class Experiment {
 					throw new Exception('Cache directory "' . $cacheDir . '" is not writable.');
 				}
 				
-				file_put_contents($cachePath, $response);
+				ftruncate($fp, 0);
+				fwrite($fp, $response);
+				fflush($fp);
+			}
+			
+			if($cacheDir) {
+				flock($fp, LOCK_UN);
+				fclose($fp);
 			}
 		}
 		
