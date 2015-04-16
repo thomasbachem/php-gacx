@@ -374,12 +374,10 @@ class Experiment {
 	 */
 	public function chooseVariation($utmx = null, $utmxx = null, $setCookies = true) {
 		$variation = $this->getChosenVariation($utmx);
-		
-		if(!$variation) {
+		if($variation === null) {
 			$variation = $this->chooseNewVariation();
 			$this->setChosenVariation($variation, $utmx, $utmxx, $setCookies);
 		}
-		
 		return $variation;
 	}
 	
@@ -388,7 +386,13 @@ class Experiment {
 	 */
 	public function chooseNewVariation() {
 		$data = $this->getData();
-		
+
+		$participation = $data['participation'];
+		$rand = mt_rand(0, 1E9) / 1E9;
+		if($rand < $participation) {
+			return self::NOT_PARTICIPATING;
+		}
+
 		// Extracted from Google Analytics Content Experiments JS client
 		$rand = mt_rand(0, 1E9) / 1E9;
 		foreach($data['items'] as $item) {
@@ -434,7 +438,11 @@ class Experiment {
 					if($m[1] == $this->id) {
 						// It seems like there can be stored multiple variations here,
 						// but that it is deprecated
-						$variations = explode('-', $m[3]);
+						if((int)$m[3] > 0) {
+							$variations = explode('-', $m[3]);
+						} else {
+							$variations[0] = $m[3];
+						}
 						return (int)$variations[0];
 					}
 				}
