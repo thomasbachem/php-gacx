@@ -375,7 +375,7 @@ class Experiment {
 	public function chooseVariation($utmx = null, $utmxx = null, $setCookies = true) {
 		$variation = $this->getChosenVariation($utmx);
 		
-		if(!$variation) {
+		if(is_null($variation)) {
 			$variation = $this->chooseNewVariation();
 			$this->setChosenVariation($variation, $utmx, $utmxx, $setCookies);
 		}
